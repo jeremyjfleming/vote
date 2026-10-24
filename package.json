@@ -1,0 +1,22 @@
+{
+  "name": "forms",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Config-driven forms and voting with password-protected results, hosted on Netlify",
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env dev.ts",
+    "typecheck": "tsc"
+  },
+  "engines": {
+    "node": ">=23.6"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^11.1.6"
+  },
+  "devDependencies": {
+    "@netlify/functions": "^6.0.3",
+    "@types/node": "^24.19.2",
+    "typescript": "^7.0.2"
+  }
+}
