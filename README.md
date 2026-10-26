@@ -53,7 +53,7 @@ Question types:
 
 - `text`: single-line answer
 - `textarea`: multi-line answer
-- `choice`: radio buttons, or checkboxes with `multiple: true`. Use `min`/`max` to limit the number of picks, and `options` or `groups` (lists with headings) for the choices.
+- `choice`: radio buttons, or checkboxes with `multiple: true`. Use `min`/`max` to limit the number of picks, and `options` or `groups` (lists with headings) for the choices. With checkboxes, a group can set `min` to require that many picks from that list.
 
 For voting, add `winners: N` to a choice question to highlight the top N on the results page. With `winnerRule: 'one-per-group'`, the leader of each group is guaranteed a spot and the remaining spots go to the highest counts overall. Ties at the cutoff are flagged so you can break them by hand.
 
@@ -63,7 +63,7 @@ Don't rename group, form, question or option `id`s after responses come in, beca
 
 ## Theology Night voting
 
-Each person picks **up to 3** of the 16 topics (approval voting), and the 3 topics with the most votes win. The winners always include at least one topic from each list.
+Each person picks **up to 3** of the 12 topics, with **at least one from each list**; the third can come from either (approval voting). The 3 topics with the most votes win, and the winners always include at least one topic from each list.
 
 - **Why 3 picks:** with one pick each, a small group spreads its votes thin across 16 topics, which makes ties likely and hides second choices. With more than 3 picks, popular and lukewarm topics start getting similar counts. Matching the number of picks to the number of winners gives each person a say in every slot while still showing clear preferences.
 - **Why "up to":** people who feel strongly about one or two topics don't have to pad their ballot with topics they don't care about.

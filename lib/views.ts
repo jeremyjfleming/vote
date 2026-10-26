@@ -187,11 +187,18 @@ function questionHtml(q: Question, value: Answer | undefined, error: string | un
   if (q.type === 'choice') {
     const selected = new Set(Array.isArray(value) ? value : value ? [value] : []);
     const type = q.multiple ? 'checkbox' : 'radio';
-    const limited = q.multiple && q.max < q.options.length;
+    const limited = q.multiple && (q.max < q.options.length || q.groups.some((g) => g.min));
     const groups = q.groups
       .map(
-        (g) => `<div class="group g${g.index % 2}">
-      ${g.label ? `<div class="group-head"><h3>${esc(g.label)}</h3>${g.description ? `<p>${esc(g.description)}</p>` : ''}</div>` : ''}
+        (g) => `<div class="group g${g.index % 2}"${g.min ? ` data-group-min="${g.min}" data-group-label="${esc(g.label)}"` : ''}>
+      ${
+        g.label
+          ? `<div class="group-head">
+        <div class="group-title"><h3>${esc(g.label)}</h3>${g.min ? `<span class="group-req">${icons.check}At least ${g.min}</span>` : ''}</div>
+        ${g.description ? `<p>${esc(g.description)}</p>` : ''}
+      </div>`
+          : ''
+      }
       <div class="options">
         ${g.options
           .map(

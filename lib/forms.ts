@@ -23,6 +23,9 @@ function normalizeQuestion(q: QuestionConfig, formId: string): Question {
 
   const multiple = Boolean(q.multiple);
   const required = Boolean(q.required);
+  const groupMins = groups.reduce((n, g) => n + (g.min || 0), 0);
+  if (groupMins && !multiple) throw new Error(`${where}: group minimums need multiple: true`);
+  if (groupMins > (q.max ?? options.length)) throw new Error(`${where}: group minimums add up to more than max`);
   const question: ChoiceQuestion = {
     ...base,
     ...q,

@@ -4,7 +4,7 @@ export default {
   id: "theology-night",
   eyebrow: "Theology Night",
   title: "Help pick our topics",
-  description: "We'll discuss the three topics with the most votes. Choose up to three from either list.",
+  description: "We'll discuss the three topics with the most votes. Pick at least one from each list, and your third from either.",
   submitLabel: "Cast my vote",
   closesAt: "2026-10-31T23:59:00-04:00",
   thankYou: {
@@ -27,13 +27,14 @@ export default {
       required: true,
       max: 3,
       label: "Which topics do you want to discuss?",
-      help: "Pick up to 3. The final three will include at least one topic from each list.",
+      help: "Pick up to 3: at least one from each list, and the third from either.",
       resultsTitle: "Topic votes",
       winners: 3,
       winnerRule: "one-per-group",
       groups: [
         {
           id: "second-tier",
+          min: 1,
           label: "Second-tier issues",
           description: "Important doctrines where faithful, Bible-believing Christians land in different places.",
           options: [
@@ -76,6 +77,7 @@ export default {
         },
         {
           id: "first-tier",
+          min: 1,
           label: "First-tier & apologetics",
           description: "Core convictions of the Christian faith, and how we give a reason for the hope we have.",
           options: [

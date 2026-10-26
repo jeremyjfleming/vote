@@ -395,6 +395,22 @@ textarea { resize: vertical; min-height: 92px; }
 .group-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 12px; padding-left: 12px; border-left: 3px solid var(--g0-line); }
 .group.g1 .group-head { border-color: var(--g1-line); }
 .group-head p { margin: 0; font-size: 0.88rem; color: var(--muted); }
+.group-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.group-req {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--sunken);
+  border-radius: 999px;
+  transition: color 0.15s, background-color 0.15s;
+}
+.group-req svg { display: none; width: 11px; height: 11px; }
+.group.is-met .group-req { color: var(--ok); background: var(--ok-soft); }
+.group.is-met .group-req svg { display: block; }
 
 .options { display: grid; gap: 8px; }
 @media (min-width: 640px) { .options { grid-template-columns: 1fr 1fr; } }

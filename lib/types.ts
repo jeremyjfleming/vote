@@ -10,6 +10,8 @@ export interface GroupConfig {
   id: string;
   label: string;
   description?: string;
+  /** Multiple-choice only: each response must pick at least this many options from this group. */
+  min?: number;
   options: OptionConfig[];
 }
 

@@ -14,6 +14,10 @@ export function validate(form: Form, data: FormData) {
         answers[q.id] = values;
         if (values.length < q.min) errors[q.id] = q.min === 1 ? 'Please choose at least one.' : `Please choose at least ${q.min}.`;
         else if (values.length > q.max) errors[q.id] = `Please choose no more than ${q.max}.`;
+        else if (q.required || values.length) {
+          const short = q.groups.find((g) => g.min && values.filter((v) => q.optionMap.get(v)!.group === g.id).length < g.min);
+          if (short) errors[q.id] = `Please choose at least ${short.min} from ${short.label}.`;
+        }
       } else {
         answers[q.id] = values[0] ?? null;
         if (q.required && !values.length) errors[q.id] = 'Please choose one.';
