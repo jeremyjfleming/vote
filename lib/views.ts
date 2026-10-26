@@ -1,96 +1,187 @@
-import { isOpen } from './forms.ts';
+import { formStatus, groups } from './forms.ts';
 import { answerLabels } from './results.ts';
 import type { ChoiceSummary, Summary, TextSummary, Winner } from './results.ts';
 import type { Answer, Form, FormGroup, Option, Question, ResponseRecord } from './types.ts';
+
+const BRAND = 'Distra Voter';
 
 const esc = (s: unknown): string =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
+const svg = (body: string, width = 2) =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+
 const icons = {
-  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
-  lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10.5" width="16" height="10" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>',
-  clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
-  arrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+  check: svg('<path d="M5 12.5l4.5 4.5L19 7.5"/>', 3),
+  lock: svg('<rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>'),
+  clock: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'),
+  user: svg('<circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c1.2-3.5 3.8-5 7-5s5.8 1.5 7 5"/>'),
+  asterisk: svg('<path d="M12 5v14M5.9 8.5l12.2 7M5.9 15.5l12.2-7"/>'),
+  chevron: svg('<path d="M9 6l6 6-6 6"/>'),
+  external: svg('<path d="M14 5h5v5M19 5l-8 8M18 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h4"/>'),
+  link: svg('<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'),
+  download: svg('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'),
+  refresh: svg('<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4"/>'),
+  alert: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 8v5M12 16.2v.1"/>'),
 };
+
+const mark = '<svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9"/><path d="M9.5 16.5l4.5 4.5 8.5-9.5"/></svg>';
+const wordmark = `<span class="wordmark"><b>Distra</b> Voter</span>`;
+
+// ---------- Layout ----------
 
 interface LayoutOptions {
   title: string;
   body: string;
-  wide?: boolean;
-  narrow?: boolean;
+  description?: string;
+  /** public: group-branded pages. admin: the Distra Voter app. bare: login and error pages. */
+  shell?: 'public' | 'admin' | 'bare';
+  group?: FormGroup;
+  width?: 'narrow' | 'default' | 'wide';
   scripts?: string[];
 }
 
-function layout({ title, body, wide = false, narrow = false, scripts = [] }: LayoutOptions): string {
-  const wrapClass = ['wrap', wide && 'wide', narrow && 'narrow'].filter(Boolean).join(' ');
+function avatar(g: FormGroup, size = ''): string {
+  return `<span class="avatar${size ? ` avatar-${size}` : ''}" aria-hidden="true">${esc(g.initials)}</span>`;
+}
+
+function groupStyle(g?: FormGroup): string {
+  if (!g?.accentColor) return '';
+  // accentColor is validated as a hex color when forms load.
+  return ` style="--group-accent:${g.accentColor};--group-accent-dark:color-mix(in oklab, ${g.accentColor} 55%, white)"`;
+}
+
+function topbar(shell: LayoutOptions['shell'], group?: FormGroup): string {
+  if (shell === 'admin') {
+    return `<header class="topbar">
+  <div class="bar-inner wide">
+    <a class="brand" href="/admin">${mark}${wordmark}</a>
+    <nav class="topnav" aria-label="Main"><a href="/admin">Dashboard</a></nav>
+    <form method="post" action="/admin/logout" class="bar-end"><button type="submit" class="btn btn-ghost btn-sm">Sign out</button></form>
+  </div>
+</header>`;
+  }
+  if (shell === 'public' && group) {
+    return `<header class="topbar">
+  <div class="bar-inner">
+    <a class="org" href="/${group.id}">${avatar(group)}<span class="org-name">${esc(group.name)}</span></a>
+  </div>
+</header>`;
+  }
+  return `<header class="bare-brand">${mark}${wordmark}</header>`;
+}
+
+function footer(shell: LayoutOptions['shell']): string {
+  if (shell === 'admin') return '';
+  if (shell === 'public') return `<footer class="foot"><span class="powered">Powered by ${mark}${wordmark}</span></footer>`;
+  return `<footer class="foot"><span class="muted small">© ${new Date().getFullYear()} ${BRAND}</span></footer>`;
+}
+
+function layout({ title, body, description, shell = 'public', group, width = 'default', scripts = [] }: LayoutOptions): string {
+  const allScripts = [...new Set(['/static/app.js', ...scripts])];
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
+${description ? `<meta name="description" content="${esc(description)}">` : ''}
+<meta property="og:site_name" content="${BRAND}">
+<meta property="og:title" content="${esc(title)}">
+${description ? `<meta property="og:description" content="${esc(description)}">` : ''}
+<meta name="theme-color" content="#2f2963">
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body>
-<main class="${wrapClass}">
+<body class="shell-${shell}"${groupStyle(group)}>
+${topbar(shell, group)}
+<main class="page page-${width}">
 ${body}
 </main>
-${scripts.map((s) => `<script src="${s}" defer></script>`).join('\n')}
+${footer(shell)}
+${allScripts.map((s) => `<script src="${s}" defer></script>`).join('\n')}
 </body>
 </html>`;
 }
 
-function message({ title, text, icon = 'check', action = '' }: { title: string; text?: string; icon?: keyof typeof icons; action?: string }): string {
+const time = (iso: string, mode: 'datetime' | 'relative' = 'datetime') =>
+  `<time datetime="${esc(iso)}"${mode === 'relative' ? ' data-relative' : ''}>${esc(iso)}</time>`;
+
+function statusPill(f: Form): string {
+  const s = formStatus(f);
+  if (s.state === 'scheduled') return `<span class="pill scheduled"><i></i>Opens ${time(s.at!)}</span>`;
+  if (s.state === 'closed') return '<span class="pill closed"><i></i>Closed</span>';
+  return `<span class="pill open"><i></i>${s.at ? `Open until ${time(s.at)}` : 'Open'}</span>`;
+}
+
+interface MessageOptions {
+  title: string;
+  text?: string;
+  html?: string;
+  icon?: keyof typeof icons;
+  tone?: 'success' | 'neutral';
+  shell?: LayoutOptions['shell'];
+  group?: FormGroup;
+}
+
+function message({ title, text, html = '', icon = 'check', tone = 'neutral', shell = 'bare', group }: MessageOptions): string {
   return layout({
-    title,
-    narrow: true,
-    body: `<section class="card center message">
-  <div class="seal">${icons[icon]}</div>
+    title: group ? `${title} · ${group.name}` : `${title} · ${BRAND}`,
+    shell,
+    group,
+    width: 'narrow',
+    body: `<section class="card message">
+  <div class="seal seal-${tone}">${icons[icon]}</div>
   <h1>${esc(title)}</h1>
   ${text ? `<p class="muted">${esc(text)}</p>` : ''}
-  ${action}
+  ${html}
 </section>`,
   });
 }
 
 // ---------- Public pages ----------
 
-function linkCard(href: string, { eyebrow, title, meta = '' }: { eyebrow?: string; title: string; meta?: string }): string {
-  return `<a class="card form-link" href="${href}">
-      <span>
-        ${eyebrow ? `<span class="eyebrow">${esc(eyebrow)}</span>` : ''}
-        <span class="form-link-title">${esc(title)}</span>
-        ${meta}
-      </span>
-      <span class="form-link-arrow">${icons.arrow}</span>
-    </a>`;
-}
-
 export function group(g: FormGroup): string {
-  const items = [...g.forms.values()]
-    .filter((f) => f.listed)
-    .map((f) => linkCard(f.path, { eyebrow: f.eyebrow, title: f.title, meta: isOpen(f) ? '' : '<span class="chip muted-chip">Closed</span>' }))
+  const listed = [...g.forms.values()].filter((f) => f.listed);
+  const rows = listed
+    .map(
+      (f) => `<a class="list-row" href="${f.path}">
+      <span class="row-main">
+        ${f.eyebrow ? `<span class="row-eyebrow">${esc(f.eyebrow)}</span>` : ''}
+        <span class="row-title">${esc(f.title)}</span>
+      </span>
+      ${statusPill(f)}
+      <span class="row-chevron">${icons.chevron}</span>
+    </a>`
+    )
     .join('');
   return layout({
-    title: g.name,
-    body: `<header class="hero">
-  <h1>${esc(g.name)}</h1>
-  ${g.description ? `<p class="lede">${esc(g.description)}</p>` : ''}
-</header>
-<div class="stack">${items || '<p class="empty">No forms yet.</p>'}</div>`,
+    title: `${g.name} · ${BRAND}`,
+    description: g.description,
+    group: g,
+    body: `<section class="org-hero">
+  ${avatar(g, 'lg')}
+  <div>
+    <h1>${esc(g.name)}</h1>
+    ${g.description ? `<p class="lede">${esc(g.description)}</p>` : ''}
+  </div>
+</section>
+<section class="card list">
+  <div class="list-caption">Forms <span class="count">${listed.length}</span></div>
+  ${rows || '<p class="empty">No forms yet.</p>'}
+</section>`,
   });
 }
 
 function questionHtml(q: Question, value: Answer | undefined, error: string | undefined): string {
-  const marker = q.required ? '<span class="req" aria-hidden="true">*</span>' : '<span class="opt">Optional</span>';
+  const marker = q.required ? '<span class="req" aria-label="required">*</span>' : '';
   const help = q.help ? `<p class="q-help">${esc(q.help)}</p>` : '';
-  const err = error ? `<p class="q-error" role="alert">${esc(error)}</p>` : '';
+  const err = error ? `<p class="q-error" role="alert">${icons.alert}${esc(error)}</p>` : '';
   const cls = `q card${error ? ' has-error' : ''}`;
 
   if (q.type === 'choice') {
@@ -136,17 +227,28 @@ function questionHtml(q: Question, value: Answer | undefined, error: string | un
 }
 
 export function form(f: Form, { values = {}, errors = {} }: { values?: Record<string, Answer>; errors?: Record<string, string> } = {}): string {
+  const g = groups.get(f.groupId)!;
   const errorCount = Object.keys(errors).length;
+  const status = formStatus(f);
+  const meta = [
+    status.at ? `<li>${icons.clock}Closes ${time(status.at)}</li>` : '',
+    f.allowMultiple ? '' : `<li>${icons.user}One response per person</li>`,
+    f.questions.some((q) => q.required) ? `<li>${icons.asterisk}Required</li>` : '',
+  ].join('');
+
   return layout({
-    title: f.eyebrow ? `${f.title} · ${f.eyebrow}` : f.title,
+    title: `${f.title} · ${g.name}`,
+    description: f.description,
+    group: g,
     scripts: ['/static/form.js'],
-    body: `<header class="hero">
+    body: `<header class="card form-header">
   ${f.eyebrow ? `<p class="eyebrow">${esc(f.eyebrow)}</p>` : ''}
   <h1>${esc(f.title)}</h1>
   ${f.description ? `<p class="lede">${esc(f.description)}</p>` : ''}
+  ${meta ? `<ul class="meta">${meta}</ul>` : ''}
 </header>
 <form method="post" action="${f.path}" class="form" data-form novalidate>
-  ${errorCount ? `<div class="alert" role="alert">Please check the highlighted ${errorCount === 1 ? 'question' : 'questions'}.</div>` : ''}
+  ${errorCount ? `<div class="alert" role="alert">${icons.alert}Please check the highlighted ${errorCount === 1 ? 'question' : 'questions'}.</div>` : ''}
   ${f.questions.map((q) => questionHtml(q, values[q.id], errors[q.id])).join('\n')}
   <div class="submit-bar">
     <span class="submit-count" data-count hidden></span>
@@ -158,76 +260,108 @@ export function form(f: Form, { values = {}, errors = {} }: { values?: Record<st
 
 export function thanks(f: Form, { already = false }: { already?: boolean } = {}): string {
   return message({
-    title: already ? "You've already responded" : f.thankYou.title || 'Thank you!',
-    text: already ? 'Thanks, your response is already in.' : f.thankYou.message || 'Your response has been recorded.',
+    title: already ? "You've already responded" : f.thankYou.title || 'Response recorded',
+    text: already ? 'Thanks, your response is already in.' : f.thankYou.message || 'Thanks for filling this out.',
+    tone: 'success',
+    shell: 'public',
+    group: groups.get(f.groupId),
   });
 }
 
 export function closed(f: Form): string {
-  return message({ title: `${f.title} is closed`, text: 'This form is not accepting responses right now.', icon: 'clock' });
+  const s = formStatus(f);
+  return message({
+    title: s.state === 'scheduled' ? "This form isn't open yet" : 'This form is closed',
+    html: `<p class="muted">${s.state === 'scheduled' ? `${esc(f.title)} opens ${time(s.at!)}.` : `${esc(f.title)} is no longer accepting responses.`}</p>`,
+    icon: 'clock',
+    shell: 'public',
+    group: groups.get(f.groupId),
+  });
 }
 
 export function notFound(): string {
-  return message({ title: 'Page not found', text: "We couldn't find what you were looking for.", icon: 'clock' });
+  return message({ title: 'Page not found', text: 'Check the link and try again.', icon: 'alert' });
 }
 
 export function error(): string {
-  return message({ title: 'Something went wrong', text: 'Please try again in a moment.', icon: 'clock' });
+  return message({ title: 'Something went wrong', text: 'Please try again in a moment.', icon: 'alert' });
 }
 
 // ---------- Admin pages ----------
 
 export function login({ next = '', error = '', configured = true }: { next?: string; error?: string; configured?: boolean } = {}): string {
   const content = configured
-    ? `${error ? `<p class="alert" role="alert">${esc(error)}</p>` : ''}
+    ? `${error ? `<p class="alert" role="alert">${icons.alert}${esc(error)}</p>` : ''}
   <form method="post" action="/admin/login" class="login-form">
     <input type="hidden" name="next" value="${esc(next)}">
-    <label class="sr-only" for="pw">Password</label>
-    <input type="password" id="pw" name="password" placeholder="Password" autocomplete="current-password" autofocus required>
-    <button type="submit" class="btn btn-primary btn-lg">Unlock results</button>
+    <label class="field-label" for="pw">Admin password</label>
+    <input type="password" id="pw" name="password" autocomplete="current-password" autofocus required>
+    <button type="submit" class="btn btn-primary btn-lg btn-block">Sign in</button>
   </form>`
-    : '<p class="alert">No admin password is configured. Set the <code>ADMIN_PASSWORD</code> environment variable and redeploy.</p>';
+    : `<p class="alert">${icons.alert}<span>No admin password is configured. Set the <code>ADMIN_PASSWORD</code> environment variable and redeploy.</span></p>`;
   return layout({
-    title: 'Results login',
-    narrow: true,
-    body: `<section class="card center message">
-  <div class="seal">${icons.lock}</div>
-  <h1>Results</h1>
-  <p class="muted">Enter the admin password to view responses.</p>
+    title: `Sign in · ${BRAND}`,
+    shell: 'bare',
+    width: 'narrow',
+    body: `<section class="card auth">
+  <h1>Sign in</h1>
+  <p class="muted">View responses and results for your forms.</p>
   ${content}
 </section>`,
   });
 }
 
-const logoutButton = '<form method="post" action="/admin/logout"><button type="submit" class="btn btn-ghost">Log out</button></form>';
+interface DashboardGroup {
+  group: FormGroup;
+  forms: { form: Form; count: number }[];
+}
 
-export function adminHome(list: { group: FormGroup; forms: { form: Form; count: number }[] }[]): string {
-  const rows = list
+export function adminHome(list: DashboardGroup[]): string {
+  const formCount = list.reduce((n, g) => n + g.forms.length, 0);
+  const responseCount = list.reduce((n, g) => n + g.forms.reduce((m, f) => m + f.count, 0), 0);
+  const openCount = list.reduce((n, g) => n + g.forms.filter(({ form }) => formStatus(form).state === 'open').length, 0);
+
+  const panels = list
     .map(
-      ({ group: g, forms }) => `<section class="admin-group">
-    <h2>${esc(g.name)} <span class="muted small">/${esc(g.id)}</span></h2>
-    <div class="stack">
-      ${forms
-        .map(({ form: f, count }) =>
-          linkCard(`/admin${f.path}`, {
-            eyebrow: f.eyebrow,
-            title: f.title,
-            meta: `<span class="muted small">${plural(count, 'response')} · ${isOpen(f) ? 'Open' : 'Closed'}</span>`,
-          })
-        )
-        .join('')}
+      ({ group: g, forms }) => `<section class="card list">
+    <div class="panel-head">
+      ${avatar(g)}
+      <div>
+        <h2>${esc(g.name)}</h2>
+        <a class="muted small link-quiet" href="/${g.id}" target="_blank" rel="noopener">/${esc(g.id)} ${icons.external}</a>
+      </div>
     </div>
+    <div class="list-head"><span>Form</span><span>Status</span><span class="num">Responses</span><span></span></div>
+    ${forms
+      .map(
+        ({ form: f, count }) => `<a class="list-row cols" href="/admin${f.path}">
+      <span class="row-main">
+        ${f.eyebrow ? `<span class="row-eyebrow">${esc(f.eyebrow)}</span>` : ''}
+        <span class="row-title">${esc(f.title)}</span>
+      </span>
+      <span>${statusPill(f)}</span>
+      <span class="num row-count">${count}</span>
+      <span class="row-chevron">${icons.chevron}</span>
+    </a>`
+      )
+      .join('') || '<p class="empty">No forms yet.</p>'}
   </section>`
     )
     .join('');
+
   return layout({
-    title: 'Results',
-    wide: true,
-    body: `<header class="admin-head">
-  <div><p class="eyebrow">Admin</p><h1>Results</h1></div>
-  <div class="actions">${logoutButton}</div>
-</header>
-<div class="stack">${rows || '<p class="empty">No forms yet.</p>'}</div>`,
+    title: `Dashboard · ${BRAND}`,
+    shell: 'admin',
+    width: 'wide',
+    body: `<div class="page-head">
+  <div><h1>Dashboard</h1><p class="muted">Forms and responses across your groups.</p></div>
+</div>
+<section class="stats">
+  <div class="card stat"><span class="stat-label">Groups</span><span class="stat-num">${list.length}</span></div>
+  <div class="card stat"><span class="stat-label">Open forms</span><span class="stat-num">${openCount}<span class="stat-of"> / ${formCount}</span></span></div>
+  <div class="card stat"><span class="stat-label">Responses</span><span class="stat-num">${responseCount}</span></div>
+</section>
+<div class="stack">${panels || '<p class="empty">No groups yet.</p>'}</div>`,
   });
 }
 
@@ -243,7 +377,7 @@ function tieNotes(winners: Winner[]): string {
   return [...ties.entries()]
     .map(([key, names]) => {
       const count = Number(key.split('|')[0]);
-      return `<p class="note warn"><strong>Tie at ${plural(count, 'vote')}:</strong> ${[...names].map(esc).join(', ')}. Pick between them yourself.</p>`;
+      return `<p class="note warn">${icons.alert}<span><strong>Tie at ${plural(count, 'vote')}:</strong> ${[...names].map(esc).join(', ')}. You'll need to break it.</span></p>`;
     })
     .join('');
 }
@@ -255,7 +389,7 @@ function choiceResult({ q, answered, ranked, maxCount, winners }: ChoiceSummary)
 
   const winnersHtml = winners.length
     ? `<div class="winners">
-      <p class="eyebrow">${winners.length === 1 ? 'The winner' : `The ${winners.length} winners`}</p>
+      <p class="section-label">${winners.length === 1 ? 'Leading' : `Top ${winners.length}`}</p>
       <ol class="winner-list">
         ${winners
           .map(
@@ -286,7 +420,7 @@ function choiceResult({ q, answered, ranked, maxCount, winners }: ChoiceSummary)
 
   return `<section class="card result">
   <div class="result-head"><h2>${esc(q.resultsTitle || q.label)}</h2><span class="muted small">${plural(answered, 'voter')}</span></div>
-  ${answered ? `${winnersHtml}<ol class="bars">${bars}</ol>` : '<p class="empty">No votes yet.</p>'}
+  ${answered ? `${winnersHtml}<p class="section-label">All options</p><ol class="bars">${bars}</ol>` : '<p class="empty">No votes yet.</p>'}
 </section>`;
 }
 
@@ -303,7 +437,7 @@ function responsesTable(f: Form, responses: ResponseRecord[]): string {
     .reverse()
     .map(
       (r) => `<tr>
-      <td class="nowrap"><time datetime="${esc(r.submittedAt)}">${esc(r.submittedAt)}</time></td>
+      <td class="nowrap muted">${time(r.submittedAt)}</td>
       ${f.questions
         .map((q) => {
           const labels = answerLabels(q, r.answers?.[q.id]);
@@ -317,8 +451,8 @@ function responsesTable(f: Form, responses: ResponseRecord[]): string {
     )
     .join('');
   return `<section class="card result">
-  <div class="result-head"><h2>All responses</h2><span class="muted small">Newest first</span></div>
-  <div class="table-wrap"><table>
+  <div class="result-head"><h2>Responses</h2><span class="muted small">Newest first</span></div>
+  <div class="table-wrap"><table class="data">
     <thead><tr><th>Submitted</th>${f.questions.map((q) => `<th>${esc(q.resultsTitle || q.label)}</th>`).join('')}</tr></thead>
     <tbody>${rows}</tbody>
   </table></div>
@@ -327,27 +461,33 @@ function responsesTable(f: Form, responses: ResponseRecord[]): string {
 
 export function results(f: Form, summary: Summary[], responses: ResponseRecord[]): string {
   const latest = responses.at(-1);
+  const status = formStatus(f);
+  const statusDetail =
+    status.state === 'open' ? (status.at ? `Closes ${time(status.at)}` : 'No close date') : status.state === 'scheduled' ? `Opens ${time(status.at!)}` : 'Not accepting responses';
+
   return layout({
-    title: `Results · ${f.title}`,
-    wide: true,
-    scripts: ['/static/admin.js'],
-    body: `<header class="admin-head">
+    title: `${f.title} · Results · ${BRAND}`,
+    shell: 'admin',
+    width: 'wide',
+    body: `<nav class="crumbs" aria-label="Breadcrumb">
+  <a href="/admin">Dashboard</a>${icons.chevron}<span>${esc(f.groupName)}</span>${icons.chevron}<span aria-current="page">${esc(f.eyebrow || f.title)}</span>
+</nav>
+<div class="page-head">
   <div>
-    <a class="back" href="/admin">← All forms</a>
-    <p class="eyebrow">${esc(f.groupName)}${f.eyebrow ? ` · ${esc(f.eyebrow)}` : ''}</p>
-    <h1>${esc(f.title)}</h1>
+    <div class="title-row"><h1>${esc(f.title)}</h1>${statusPill(f)}</div>
+    <p class="muted">${esc(f.groupName)}${f.eyebrow ? ` · ${esc(f.eyebrow)}` : ''}</p>
   </div>
   <div class="actions">
-    <a class="btn" href="/admin${f.path}">Refresh</a>
-    <a class="btn" href="/admin${f.path}/export.csv">Export CSV</a>
-    <a class="btn" href="${f.path}" target="_blank" rel="noopener">Open form</a>
-    ${logoutButton}
+    <a class="btn" href="/admin${f.path}">${icons.refresh}Refresh</a>
+    <button type="button" class="btn" data-copy="${f.path}" hidden>${icons.link}<span>Copy link</span></button>
+    <a class="btn" href="/admin${f.path}/export.csv">${icons.download}Export CSV</a>
+    <a class="btn btn-primary" href="${f.path}" target="_blank" rel="noopener">View form${icons.external}</a>
   </div>
-</header>
+</div>
 <section class="stats">
-  <div class="card stat"><span class="stat-num">${responses.length}</span><span class="stat-label">${responses.length === 1 ? 'Response' : 'Responses'}</span></div>
-  <div class="card stat"><span class="stat-num small">${latest ? `<time datetime="${esc(latest.submittedAt)}" data-relative>${esc(latest.submittedAt)}</time>` : '—'}</span><span class="stat-label">Latest response</span></div>
-  <div class="card stat"><span class="stat-num small"><span class="dot ${isOpen(f) ? 'open' : ''}"></span>${isOpen(f) ? 'Open' : 'Closed'}</span><span class="stat-label">Status</span></div>
+  <div class="card stat"><span class="stat-label">Responses</span><span class="stat-num">${responses.length}</span></div>
+  <div class="card stat"><span class="stat-label">Latest response</span><span class="stat-num stat-text">${latest ? time(latest.submittedAt, 'relative') : '—'}</span></div>
+  <div class="card stat"><span class="stat-label">Schedule</span><span class="stat-num stat-text">${statusDetail}</span></div>
 </section>
 <div class="stack">
   ${summary.map((s) => ('ranked' in s ? choiceResult(s) : textResult(s))).join('\n')}

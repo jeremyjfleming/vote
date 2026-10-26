@@ -1,9 +1,9 @@
 {
-  "name": "forms",
+  "name": "distra-voter",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Config-driven forms and voting with password-protected results, hosted on Netlify",
+  "description": "Distra Voter: group-branded forms and voting with password-protected results",
   "scripts": {
     "dev": "node --env-file-if-exists=.env dev.ts",
     "typecheck": "tsc"

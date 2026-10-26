@@ -55,6 +55,10 @@ export interface FormGroupConfig {
   id: string;
   name: string;
   description?: string;
+  /** Brand color for this group's pages, as a hex color like "#1f6feb". Defaults to the Distra Voter color. */
+  accentColor?: string;
+  /** Up to 3 characters shown in the group's badge. Defaults to the initials of the name. */
+  initials?: string;
   forms: FormConfig[];
 }
 
@@ -129,6 +133,7 @@ export interface Form extends Omit<FormConfig, 'questions'> {
 }
 
 export interface FormGroup extends Omit<FormGroupConfig, 'forms'> {
+  initials: string;
   forms: Map<string, Form>;
 }
 

@@ -1,6 +1,6 @@
-# Forms
+# Distra Voter
 
-Small config-driven form and voting app with a password-protected results page. Runs on Netlify: pages are rendered by one Netlify Function, and responses are stored in Netlify Blobs.
+Distra Voter is a config-driven form and voting platform with a password-protected results page. Runs on Netlify: pages are rendered by one Netlify Function, and responses are stored in Netlify Blobs.
 
 Forms are organized into groups (for example, a ministry or team), and each group has its own URL.
 
@@ -38,6 +38,11 @@ npm run typecheck
 2. Import the group in `forms/index.ts` and add it to the list.
 
 Group ids can't be `admin` or `static`, because the app uses those paths.
+
+Public pages are branded with the group: its name and badge are in the top bar, and Distra Voter appears only as "Powered by" in the footer. Two optional fields customize this:
+
+- `accentColor`: a hex color like `"#1f6feb"` for buttons, selections and the form header stripe. Without it, pages use the Distra Voter palette.
+- `initials`: up to 3 characters for the badge. Defaults to the first letters of the first two words of the name.
 
 ## Adding a form
 

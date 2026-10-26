@@ -58,9 +58,11 @@ function normalizeForm(f: FormConfig, group: FormGroupConfig): Form {
 function normalizeGroup(g: FormGroupConfig): FormGroup {
   if (!ID_RE.test(g.id)) throw new Error(`group "${g.id}": id must be lowercase letters, numbers and dashes`);
   if (RESERVED_GROUP_IDS.has(g.id)) throw new Error(`group "${g.id}": that id is reserved`);
+  if (g.accentColor && !/^#[0-9a-f]{6}$/i.test(g.accentColor)) throw new Error(`group "${g.id}": accentColor must look like "#1f6feb"`);
   const forms = new Map(g.forms.map((f) => [f.id, normalizeForm(f, g)]));
   if (forms.size !== g.forms.length) throw new Error(`group "${g.id}": form ids must be unique`);
-  return { ...g, forms };
+  const initials = (g.initials || g.name.split(/\s+/).slice(0, 2).map((w) => w[0]).join('')).slice(0, 3).toUpperCase();
+  return { ...g, initials, forms };
 }
 
 export const groups = new Map(configs.map((g) => [g.id, normalizeGroup(g)]));
@@ -70,9 +72,19 @@ export function findForm(groupId: string, formId: string): Form | undefined {
   return groups.get(groupId)?.forms.get(formId);
 }
 
+export interface FormStatus {
+  state: 'open' | 'scheduled' | 'closed';
+  /** When it opens (scheduled) or closes (open), if set. */
+  at?: string;
+}
+
+export function formStatus(form: Form): FormStatus {
+  if (form.closed) return { state: 'closed' };
+  if (form.opensAt && Date.now() < Date.parse(form.opensAt)) return { state: 'scheduled', at: form.opensAt };
+  if (form.closesAt && Date.now() >= Date.parse(form.closesAt)) return { state: 'closed' };
+  return { state: 'open', at: form.closesAt };
+}
+
 export function isOpen(form: Form): boolean {
-  if (form.closed) return false;
-  if (form.opensAt && Date.now() < Date.parse(form.opensAt)) return false;
-  if (form.closesAt && Date.now() >= Date.parse(form.closesAt)) return false;
-  return true;
+  return formStatus(form).state === 'open';
 }

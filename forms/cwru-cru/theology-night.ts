@@ -37,44 +37,39 @@ export default {
           description: "Important doctrines where faithful, Bible-believing Christians land in different places.",
           options: [
             {
-              id: "baptism",
-              label: "Baptism",
-              description: "Infants or believers only? Sprinkling or immersion? What baptism does and what it means."
+              id: "covenant-dispensational",
+              label: "Covenant vs. Dispensational Theology",
+              description: "Who is the true Israel, who inherits the covenants, and how each view reads the story of the Bible."
             },
             {
-              id: "lords-supper",
-              label: "The Lord's Supper",
-              description: "Memorial, spiritual presence, or real presence? Who should take it, and how often?"
+              id: "sacraments",
+              label: "Baptism & Communion: Signs or More?",
+              description: "Are the sacraments symbols only, or does God actually do something through them?"
             },
             {
-              id: "spiritual-gifts",
-              label: "Spiritual Gifts",
-              description: "Cessationism vs. continuationism: are tongues, prophecy, and healing for today?"
+              id: "gender-roles",
+              label: "Complementarianism vs. Egalitarianism",
+              description: "What Scripture teaches about the roles of men and women in the church and the home."
             },
             {
               id: "end-times",
               label: "The End Times",
-              description: "Pre-, post-, and amillennialism, the rapture, and how to read Revelation."
+              description: "Premillennial, postmillennial, and amillennial views, and how to read Revelation."
             },
             {
-              id: "predestination",
-              label: "Predestination & Free Will",
-              description: "Calvinism, Arminianism, and how God's sovereignty relates to human choice."
+              id: "atonement",
+              label: "What Happened on the Cross?",
+              description: "Penal substitution, Christus Victor, and whether we have to choose between them."
             },
             {
-              id: "women-in-ministry",
-              label: "Women in Ministry",
-              description: "Complementarian and egalitarian readings of the key passages."
+              id: "genesis",
+              label: "Reading Genesis 1–11",
+              description: "Creation, Adam and Eve, and the Flood: literal history, literary framework, or something in between?"
             },
             {
-              id: "church-government",
-              label: "Church Government",
-              description: "Elders, bishops, or congregations: how should a church be led?"
-            },
-            {
-              id: "creation",
-              label: "Creation & the Age of the Earth",
-              description: "Young-earth, old-earth, and other readings of Genesis 1–2."
+              id: "lesser-evil",
+              label: "Is It Ever Right to Sin?",
+              description: "Lying to save a life or stealing to feed a starving family: what to do when commands seem to collide."
             }
           ]
         },
@@ -89,39 +84,24 @@ export default {
               description: "One God in three persons: what it means, why it matters, and common misunderstandings."
             },
             {
-              id: "deity-of-christ",
-              label: "The Deity of Christ",
-              description: "Fully God and fully man: the biblical case and the early church's answer."
-            },
-            {
               id: "resurrection",
               label: "The Resurrection",
               description: "The historical evidence for the empty tomb, and why everything hinges on it."
             },
             {
-              id: "gospel",
-              label: "Saved by Grace Through Faith",
-              description: "Justification, works, and what the gospel actually is."
-            },
-            {
               id: "scripture",
               label: "Can We Trust the Bible?",
-              description: "Manuscripts, the canon, and the inspiration and authority of Scripture."
+              description: "Is the Bible reliable, and how do we know the 66 books of the Protestant canon are God's inspired Word?"
             },
             {
-              id: "god-exists",
-              label: "Does God Exist?",
-              description: "The cosmological, moral, and design arguments, and the strongest objections."
+              id: "free-will-evil",
+              label: "Free Will & Evil",
+              description: "Does real freedom require the possibility of evil, and why would a good God allow it?"
             },
             {
-              id: "problem-of-evil",
-              label: "The Problem of Evil",
-              description: "If God is good and all-powerful, why is there suffering?"
-            },
-            {
-              id: "exclusivity",
-              label: "Is Jesus the Only Way?",
-              description: "The exclusivity of Christ in a pluralistic world."
+              id: "never-heard",
+              label: "Those Who Have Never Heard",
+              description: "What happens to people who die without ever hearing the gospel?"
             }
           ]
         }
