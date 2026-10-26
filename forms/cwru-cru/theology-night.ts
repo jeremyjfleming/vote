@@ -6,6 +6,7 @@ export default {
   title: "Help pick our topics",
   description: "We'll discuss the three topics with the most votes. Choose up to three from either list.",
   submitLabel: "Cast my vote",
+  closesAt: "2026-10-31T23:59:00-04:00",
   thankYou: {
     title: "Your vote is in",
     message: "Thanks for weighing in. We'll announce the three topics soon. See you at Theology Night!"
