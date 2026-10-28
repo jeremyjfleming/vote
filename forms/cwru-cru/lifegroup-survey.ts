@@ -9,8 +9,8 @@ export default {
   description: "This survey is completely anonymous. We don't collect your name, email, or anything else that identifies you.",
   submitLabel: 'Submit survey',
   anonymous: true,
-  // Set this before sharing: the giveaway is drawn once the survey closes.
-  // closesAt: '2026-11-07T23:59:00-05:00',
+  // The giveaway is drawn once the survey closes.
+  closesAt: '2026-11-06T23:59:00-05:00',
   compareBy: 'lifegroup',
   giveaway: {
     prize: "A free scoop at Mitchell's Ice Cream",
