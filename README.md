@@ -54,10 +54,35 @@ Question types:
 - `text`: single-line answer
 - `textarea`: multi-line answer
 - `choice`: radio buttons, or checkboxes with `multiple: true`. Use `min`/`max` to limit the number of picks, and `options` or `groups` (lists with headings) for the choices. With checkboxes, a group can set `min` to require that many picks from that list.
+- `scale`: a 1–10 rating (change with `min`/`max`), with optional `minLabel`/`maxLabel`. Results show the average and a histogram.
+- `section`: a heading (plus optional `help` text) that splits the form into parts. It collects no answer.
+
+Any question or section can take `showIf: { question: 'lifegroup', equals: 'monday' }` to appear only after a certain answer to an earlier choice question. Hidden questions aren't required, and anything sent for them is discarded. `shortLabel` sets a short column heading for the responses table.
 
 For voting, add `winners: N` to a choice question to highlight the top N on the results page. With `winnerRule: 'one-per-group'`, the leader of each group is guaranteed a spot and the remaining spots go to the highest counts overall. Ties at the cutoff are flagged so you can break them by hand.
 
-Useful form options: `closed: true`, `opensAt` / `closesAt` (ISO date-times), `allowMultiple` (lets one browser submit more than once), and `listed: false` (hides the form from its group page; the direct link still works).
+Useful form options: `closed: true`, `opensAt` / `closesAt` (ISO date-times), `allowMultiple` (lets one browser submit more than once), `listed: false` (hides the form from its group page; the direct link still works), and `compareBy: '<question-id>'` (also averages each rating per answer to that single-choice question, such as per LifeGroup).
+
+### Anonymous forms
+
+`anonymous: true` keeps responses from being traced to people:
+
+- Don't add a name or email question; the form says it's anonymous.
+- Each response is stored under a random id with the **date only** (in the group's `timeZone`), never the time, so a response can't be matched to when someone was seen submitting. Same-day responses are listed in random order.
+- After each submission, the form's stored responses and giveaway entries are re-saved unchanged, so storage-level "last modified" times can't reveal when any one of them was made.
+- The "one response per person" check is a cookie on the respondent's device; nothing about it is stored on the server.
+
+### Giveaways
+
+```ts
+giveaway: { prize: "A free scoop at Mitchell's Ice Cream", winners: 5, questions: ['going-well', /* ... */] },
+```
+
+- Respondents who answer every listed text question get a random code (like `K7QF-9MXA`) on the thank-you page, and their browser remembers it.
+- The server stores only a one-way hash of each code, separately from the answers, with no time or order. Nobody, admins included, can link a code to a response or a person.
+- Winners are drawn at random the first time anyone opens the giveaway page or the results page after the form closes. The draw is saved once and never changes. Set `closesAt` (or `closed: true`) so the draw happens.
+- Respondents check at `/<group-id>/<form-id>/giveaway`. A winner shows their screen to a leader, who enters the code under **Giveaway** on the results page to verify it and mark it claimed. Each code can be claimed once.
+- Someone could enter more than once by using another device or a private window. Anonymity rules out stronger checks.
 
 Don't rename group, form, question or option `id`s after responses come in, because results are stored by id. Labels and descriptions can change any time.
 
@@ -73,5 +98,5 @@ Repeat votes are blocked by a browser cookie. That stops accidental double votes
 ## Data
 
 - View or export: **Export CSV** on the results page.
-- Reset a form on Netlify: delete its entries in the site's **Blobs** tab (store `responses`, prefix `<group-id>/<form-id>/`).
-- Reset a form locally: delete `.data/<group-id>/<form-id>/`.
+- Reset a form on Netlify: in the site's **Blobs** tab, delete the entries starting with `<group-id>/<form-id>/` in the `responses` store, and in the `giveaway` store if it has a giveaway.
+- Reset a form locally: delete `.data/responses/<group-id>/<form-id>/` and `.data/giveaway/<group-id>/<form-id>/`.

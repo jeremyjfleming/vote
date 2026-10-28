@@ -1,5 +1,5 @@
 import configs from '../forms/index.ts';
-import type { ChoiceQuestion, Form, FormConfig, FormGroup, FormGroupConfig, Group, Option, Question, QuestionConfig } from './types.ts';
+import type { Answer, ChoiceQuestion, Form, FormConfig, FormGroup, FormGroupConfig, Group, Option, Question, QuestionConfig } from './types.ts';
 
 const ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 // Top-level paths the app itself uses.
@@ -10,6 +10,13 @@ function normalizeQuestion(q: QuestionConfig, formId: string): Question {
   if (!ID_RE.test(q.id)) throw new Error(`${where}: id must be lowercase letters, numbers and dashes`);
   const base = { required: false, help: '', summary: true };
 
+  if (q.type === 'section') return { ...base, ...q, required: false, summary: false };
+  if (q.type === 'scale') {
+    const min = q.min ?? 1;
+    const max = q.max ?? 10;
+    if (!Number.isInteger(min) || !Number.isInteger(max) || max <= min || max - min > 20) throw new Error(`${where}: min and max must be whole numbers, at most 20 apart`);
+    return { ...base, ...q, required: Boolean(q.required), min, max };
+  }
   if (q.type !== 'choice') {
     return { ...base, ...q, maxLength: q.maxLength || (q.type === 'text' ? 120 : 2000) };
   }
@@ -45,23 +52,58 @@ function normalizeQuestion(q: QuestionConfig, formId: string): Question {
 function normalizeForm(f: FormConfig, group: FormGroupConfig): Form {
   const key = `${group.id}/${f.id}`;
   if (!ID_RE.test(f.id)) throw new Error(`form "${key}": id must be lowercase letters, numbers and dashes`);
+  const questions = f.questions.map((q) => normalizeQuestion(q, key));
+  if (new Set(questions.map((q) => q.id)).size !== questions.length) throw new Error(`form "${key}": question ids must be unique`);
+
+  questions.forEach((q, i) => {
+    if (!q.showIf) return;
+    const target = questions.slice(0, i).find((t) => t.id === q.showIf!.question);
+    if (target?.type !== 'choice') throw new Error(`form "${key}": "${q.id}" showIf must point to an earlier choice question`);
+  });
+  const byId = new Map(questions.map((q) => [q.id, q]));
+  if (f.compareBy && (byId.get(f.compareBy) as ChoiceQuestion | undefined)?.multiple !== false) {
+    throw new Error(`form "${key}": compareBy must be a single-choice question`);
+  }
+  if (f.giveaway) {
+    if (f.allowMultiple) throw new Error(`form "${key}": a giveaway needs allowMultiple off, or people could enter many times`);
+    for (const id of f.giveaway.questions) {
+      const t = byId.get(id)?.type;
+      if (t !== 'text' && t !== 'textarea') throw new Error(`form "${key}": giveaway question "${id}" must be a text question`);
+    }
+  }
+
   return {
     listed: true,
     allowMultiple: false,
+    anonymous: false,
     ...f,
     thankYou: f.thankYou || {},
-    questions: f.questions.map((q) => normalizeQuestion(q, key)),
+    questions,
     groupId: group.id,
     groupName: group.name,
+    timeZone: group.timeZone || 'UTC',
     path: `/${key}`,
     key,
   };
+}
+
+/** Whether q applies, given the answers so far. Questions without showIf always apply. */
+export function isShown(q: Question, answers: Record<string, Answer>): boolean {
+  if (!q.showIf) return true;
+  const value = answers[q.showIf.question];
+  const wanted = Array.isArray(q.showIf.equals) ? q.showIf.equals : [q.showIf.equals];
+  return (Array.isArray(value) ? value : [value]).some((v) => typeof v === 'string' && wanted.includes(v));
 }
 
 function normalizeGroup(g: FormGroupConfig): FormGroup {
   if (!ID_RE.test(g.id)) throw new Error(`group "${g.id}": id must be lowercase letters, numbers and dashes`);
   if (RESERVED_GROUP_IDS.has(g.id)) throw new Error(`group "${g.id}": that id is reserved`);
   if (g.accentColor && !/^#[0-9a-f]{6}$/i.test(g.accentColor)) throw new Error(`group "${g.id}": accentColor must look like "#1f6feb"`);
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: g.timeZone || 'UTC' });
+  } catch {
+    throw new Error(`group "${g.id}": unknown timeZone "${g.timeZone}"`);
+  }
   const forms = new Map(g.forms.map((f) => [f.id, normalizeForm(f, g)]));
   if (forms.size !== g.forms.length) throw new Error(`group "${g.id}": form ids must be unique`);
   const initials = (g.initials || g.name.split(/\s+/).slice(0, 2).map((w) => w[0]).join('')).slice(0, 3).toUpperCase();

@@ -1,14 +1,21 @@
-import { formStatus, groups } from './forms.ts';
-import { answerLabels } from './results.ts';
-import type { ChoiceSummary, Summary, TextSummary, Winner } from './results.ts';
+import { formStatus, groups, isShown } from './forms.ts';
+import { answerable, answerLabels } from './results.ts';
+import type { ChoiceSummary, ScaleSummary, Summary, TextSummary, Winner } from './results.ts';
+import type { CodeStatus, Draw } from './giveaway.ts';
 import type { Answer, Form, FormGroup, Option, Question, ResponseRecord } from './types.ts';
+
+export interface GiveawayInfo {
+  entries: number;
+  draw: Draw | null;
+  claims: number;
+}
 
 const BRAND = 'Distra Voter';
 
 const esc = (s: unknown): string =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 
 const svg = (body: string, width = 2) =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
@@ -25,6 +32,9 @@ const icons = {
   download: svg('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'),
   refresh: svg('<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4"/>'),
   alert: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 8v5M12 16.2v.1"/>'),
+  shield: svg('<path d="M12 3.5l7 2.8v5.2c0 4.4-3 7.9-7 9-4-1.1-7-4.6-7-9V6.3z"/><path d="M9 12l2 2 4-4"/>'),
+  gift: svg('<rect x="4" y="9" width="16" height="11" rx="1.5"/><path d="M3 9h18M12 9v11M12 9c-1.5-3-5-4-5-1.5S10 9 12 9c2 0 5 .5 5-1.5S13.5 6 12 9"/>'),
+  copy: svg('<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/>'),
 };
 
 const mark = '<svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9"/><path d="M9.5 16.5l4.5 4.5 8.5-9.5"/></svg>';
@@ -109,8 +119,12 @@ ${allScripts.map((s) => `<script src="${s}" defer></script>`).join('\n')}
 </html>`;
 }
 
-const time = (iso: string, mode: 'datetime' | 'relative' = 'datetime') =>
-  `<time datetime="${esc(iso)}"${mode === 'relative' ? ' data-relative' : ''}>${esc(iso)}</time>`;
+// Times are rendered in the viewer's time zone by app.js. Date-only values
+// (from anonymous forms) have no time zone and are shown as-is.
+function time(iso: string, mode: 'datetime' | 'relative' = 'datetime'): string {
+  if (iso.length === 10) return `<time datetime="${esc(iso)}" data-date-only>${esc(iso)}</time>`;
+  return `<time datetime="${esc(iso)}"${mode === 'relative' ? ' data-relative' : ''}>${esc(iso)}</time>`;
+}
 
 function statusPill(f: Form): string {
   const s = formStatus(f);
@@ -178,11 +192,41 @@ export function group(g: FormGroup): string {
   });
 }
 
-function questionHtml(q: Question, value: Answer | undefined, error: string | undefined): string {
+function questionHtml(q: Question, value: Answer | undefined, error: string | undefined, shown: boolean): string {
   const marker = q.required ? '<span class="req" aria-label="required">*</span>' : '';
   const help = q.help ? `<p class="q-help">${esc(q.help)}</p>` : '';
   const err = error ? `<p class="q-error" role="alert">${icons.alert}${esc(error)}</p>` : '';
   const cls = `q card${error ? ' has-error' : ''}`;
+  // form.js shows and hides these as the controlling answer changes.
+  const cond = q.showIf
+    ? ` data-show-if="${esc(q.showIf.question)}" data-show-values="${esc([q.showIf.equals].flat().join(' '))}"${shown ? '' : ' hidden'}`
+    : '';
+
+  if (q.type === 'section') {
+    return `<div class="form-section" id="q-${q.id}"${cond}>
+    <h2>${esc(q.label)}</h2>
+    ${q.help ? `<p>${esc(q.help)}</p>` : ''}
+  </div>`;
+  }
+
+  if (q.type === 'scale') {
+    const values = Array.from({ length: q.max - q.min + 1 }, (_, i) => q.min + i);
+    return `<fieldset class="${cls}" id="q-${q.id}"${cond}>
+    <legend class="q-label">${esc(q.label)} ${marker}</legend>
+    ${help}${err}
+    <div class="scale" style="--steps:${values.length}">
+      ${values
+        .map(
+          (n) => `<label class="scale-opt">
+        <input type="radio" name="q_${q.id}" value="${n}"${value === n ? ' checked' : ''}>
+        <span>${n}</span>
+      </label>`
+        )
+        .join('')}
+    </div>
+    ${q.minLabel || q.maxLabel ? `<div class="scale-labels"><span>${esc(q.minLabel)}</span><span>${esc(q.maxLabel)}</span></div>` : ''}
+  </fieldset>`;
+  }
 
   if (q.type === 'choice') {
     const selected = new Set(Array.isArray(value) ? value : value ? [value] : []);
@@ -216,7 +260,7 @@ function questionHtml(q: Question, value: Answer | undefined, error: string | un
     </div>`
       )
       .join('');
-    return `<fieldset class="${cls}" id="q-${q.id}" data-choice${limited ? ` data-max="${q.max}"` : ''}>
+    return `<fieldset class="${cls}" id="q-${q.id}" data-choice${limited ? ` data-max="${q.max}"` : ''}${cond}>
     <legend class="q-label">${esc(q.label)} ${marker}</legend>
     ${help}${err}${groups}
   </fieldset>`;
@@ -227,7 +271,7 @@ function questionHtml(q: Question, value: Answer | undefined, error: string | un
     q.type === 'textarea'
       ? `<textarea ${attrs} rows="${q.rows || 4}">${esc(value)}</textarea>`
       : `<input type="text" ${attrs} value="${esc(value)}"${q.autocomplete ? ` autocomplete="${esc(q.autocomplete)}"` : ''}>`;
-  return `<div class="${cls}" id="q-${q.id}">
+  return `<div class="${cls}" id="q-${q.id}"${cond}>
     <label class="q-label" for="i-${q.id}">${esc(q.label)} ${marker}</label>
     ${help}${err}${input}
   </div>`;
@@ -238,10 +282,24 @@ export function form(f: Form, { values = {}, errors = {} }: { values?: Record<st
   const errorCount = Object.keys(errors).length;
   const status = formStatus(f);
   const meta = [
+    f.anonymous ? `<li class="meta-strong">${icons.shield}Anonymous</li>` : '',
+    f.giveaway ? `<li class="meta-strong">${icons.gift}Giveaway</li>` : '',
     status.at ? `<li>${icons.clock}Closes ${time(status.at)}</li>` : '',
     f.allowMultiple ? '' : `<li>${icons.user}One response per person</li>`,
     f.questions.some((q) => q.required) ? `<li>${icons.asterisk}Required</li>` : '',
   ].join('');
+
+  // Questions are shown based on the answers before them, so walk in order.
+  const shownSoFar: Record<string, Answer> = {};
+  const firstEntryQuestion = f.giveaway && f.questions.find((q) => f.giveaway!.questions.includes(q.id));
+  const questions = f.questions
+    .map((q) => {
+      const shown = isShown(q, shownSoFar);
+      if (shown) shownSoFar[q.id] = values[q.id] ?? null;
+      const callout = q === firstEntryQuestion ? giveawayCallout(f) : '';
+      return callout + questionHtml(q, values[q.id], errors[q.id], shown);
+    })
+    .join('\n');
 
   return layout({
     title: `${f.title} · ${g.name}`,
@@ -256,7 +314,7 @@ export function form(f: Form, { values = {}, errors = {} }: { values?: Record<st
 </header>
 <form method="post" action="${f.path}" class="form" data-form novalidate>
   ${errorCount ? `<div class="alert" role="alert">${icons.alert}Please check the highlighted ${errorCount === 1 ? 'question' : 'questions'}.</div>` : ''}
-  ${f.questions.map((q) => questionHtml(q, values[q.id], errors[q.id])).join('\n')}
+  ${questions}
   <div class="submit-bar">
     <span class="submit-count" data-count hidden></span>
     <button type="submit" class="btn btn-primary btn-lg">${esc(f.submitLabel || 'Submit')}</button>
@@ -265,13 +323,98 @@ export function form(f: Form, { values = {}, errors = {} }: { values?: Record<st
   });
 }
 
-export function thanks(f: Form, { already = false }: { already?: boolean } = {}): string {
+function giveawayCallout(f: Form): string {
+  const g = f.giveaway!;
+  const n = g.questions.length;
+  return `<aside class="callout" data-giveaway="${esc(g.questions.join(' '))}">
+    <span class="callout-icon">${icons.gift}</span>
+    <div>
+      <p class="callout-title">Giveaway: ${esc(g.prize)}</p>
+      <p>Answer ${n === 1 ? 'the question' : `all ${n} questions`} below to be entered. ${plural(g.winners, 'winner')} will be drawn after the form closes${f.anonymous ? ', and your entry is not linked to your answers' : ''}.</p>
+      <p class="callout-progress" data-giveaway-progress aria-live="polite"></p>
+    </div>
+  </aside>`;
+}
+
+function codeBox(code: string): string {
+  return `<div class="code-box">
+    <span class="code" data-code>${esc(code)}</span>
+    <button type="button" class="btn btn-sm" data-copy-text="${esc(code)}" hidden>${icons.copy}<span>Copy</span></button>
+  </div>`;
+}
+
+function drawTiming(f: Form): string {
+  const s = formStatus(f);
+  if (s.state === 'closed') return 'Winners have been drawn';
+  return s.at ? `Winners are drawn after the form closes ${time(s.at)}` : 'Winners are drawn after the form closes';
+}
+
+export function thanks(f: Form, { already = false, ticket }: { already?: boolean; ticket?: string } = {}): string {
+  let giveawayHtml = '';
+  if (f.giveaway && ticket === 'none') {
+    giveawayHtml = `<div class="ticket ticket-muted">
+      <p>You weren't entered in the giveaway, because some of the feedback questions were left blank.</p>
+    </div>`;
+  } else if (f.giveaway && ticket) {
+    giveawayHtml = `<div class="ticket">
+      <p class="ticket-title">${icons.gift}You're entered to win ${esc(f.giveaway.prize.replace(/^A /, 'a '))}</p>
+      <p class="muted small">Your giveaway code</p>
+      ${codeBox(ticket)}
+      <p class="small"><strong>Screenshot this or write it down.</strong> The code isn't linked to your answers, so it's the only way to claim a prize.</p>
+      <p class="small muted">${drawTiming(f)}. This device will remember your code.</p>
+      <a class="btn" href="${f.path}/giveaway">Check the giveaway</a>
+    </div>`;
+  }
   return message({
     title: already ? "You've already responded" : f.thankYou.title || 'Response recorded',
     text: already ? 'Thanks, your response is already in.' : f.thankYou.message || 'Thanks for filling this out.',
+    html: giveawayHtml,
     tone: 'success',
     shell: 'public',
     group: groups.get(f.groupId),
+  });
+}
+
+export function giveawayPage(f: Form, { status, draw, fromDevice }: { status?: CodeStatus; draw: Draw | null; fromDevice: boolean }): string {
+  const g = f.giveaway!;
+  let result = '';
+  if (status) {
+    const code = 'code' in status ? `<span class="code code-sm">${esc(status.code)}</span>` : '';
+    const source = fromDevice ? 'The code saved on this device' : 'That code';
+    if (status.state === 'won') {
+      result = `<div class="result-card won">
+        <div class="seal seal-success">${icons.gift}</div>
+        <h2>You won!</h2>
+        <p>${esc(g.prize)} is yours.${status.claimedAt ? '' : ' Show this screen to a leader to claim it.'}</p>
+        ${codeBox(status.code)}
+        ${status.claimedAt ? `<p class="pill closed"><i></i>Claimed ${time(status.claimedAt)}</p>` : ''}
+      </div>`;
+    } else if (status.state === 'lost') {
+      result = `<div class="result-card"><h2>Not this time</h2><p class="muted">${source} ${code} wasn't drawn. Thanks for the feedback!</p></div>`;
+    } else if (status.state === 'pending') {
+      result = `<div class="result-card"><h2>You're entered</h2><p class="muted">${source} ${code} is in the draw. Check back once the form closes.</p></div>`;
+    } else if (status.state === 'unknown') {
+      result = `<div class="result-card"><h2>Code not found</h2><p class="muted">Check for typos and try again.</p></div>`;
+    } else {
+      result = `<div class="result-card"><h2>That doesn't look like a code</h2><p class="muted">Codes look like K7QF-9MXA.</p></div>`;
+    }
+  }
+
+  return layout({
+    title: `Giveaway · ${f.title}`,
+    group: groups.get(f.groupId),
+    width: 'narrow',
+    body: `<section class="card giveaway-page">
+  <p class="eyebrow">${icons.gift}Giveaway</p>
+  <h1>${esc(g.prize)}</h1>
+  <p class="muted">${plural(g.winners, 'winner')} from everyone who answered all the feedback questions in ${esc(f.title)}. ${drawTiming(f)}${draw ? ` from ${plural(draw.entries, 'entry', 'entries')}` : ''}.</p>
+  ${result}
+  <form method="post" action="${f.path}/giveaway" class="login-form">
+    <label class="field-label" for="code">${status ? 'Check another code' : 'Check your code'}</label>
+    <input type="text" id="code" name="code" placeholder="K7QF-9MXA" autocomplete="off" autocapitalize="characters" spellcheck="false" required>
+    <button type="submit" class="btn btn-primary btn-lg btn-block">Check</button>
+  </form>
+</section>`,
   });
 }
 
@@ -438,14 +581,83 @@ function textResult({ q, answers }: TextSummary): string {
 </section>`;
 }
 
+function scaleResult({ q, answered, average, counts, maxCount, segments }: ScaleSummary): string {
+  const fmt = (n: number | null) => (n === null ? '—' : n.toFixed(1));
+  const columns = counts
+    .map(
+      (c) => `<div class="hist-col" title="${plural(c.count, 'response')} chose ${c.value}">
+      <span class="hist-count">${c.count || ''}</span>
+      <div class="hist-bar" style="height:${maxCount ? Math.max((c.count / maxCount) * 100, c.count ? 4 : 0) : 0}%"></div>
+      <span class="hist-value">${c.value}</span>
+    </div>`
+    )
+    .join('');
+  return `<section class="card result">
+  <div class="result-head"><h2>${esc(q.resultsTitle || q.label)}</h2><span class="muted small">${plural(answered, 'answer')}</span></div>
+  ${
+    answered
+      ? `<div class="scale-result">
+    <div class="scale-avgs">
+      <div class="scale-avg"><span class="stat-num">${fmt(average)}</span><span class="muted small">average, ${q.min} to ${q.max}</span></div>
+      ${segments
+        .filter((s) => s.answered)
+        .map((s) => `<div class="scale-avg seg"><span class="seg-num">${fmt(s.average)}</span><span class="muted small">${esc(s.label)} · ${s.answered}</span></div>`)
+        .join('')}
+    </div>
+    <div class="histogram" style="--steps:${counts.length}">${columns}</div>
+  </div>
+  ${q.minLabel || q.maxLabel ? `<div class="scale-labels"><span>${q.min} = ${esc(q.minLabel)}</span><span>${q.max} = ${esc(q.maxLabel)}</span></div>` : ''}`
+      : '<p class="empty">No answers yet.</p>'
+  }
+</section>`;
+}
+
+function giveawayPanel(f: Form, info: GiveawayInfo, claimed?: CodeStatus): string {
+  const g = f.giveaway!;
+  const { entries, draw, claims } = info;
+  let message = '';
+  if (claimed) {
+    const tone = claimed.state === 'won' && claimed.justClaimed ? 'ok' : claimed.state === 'won' ? 'warn' : 'bad';
+    const text =
+      claimed.state === 'won'
+        ? claimed.justClaimed
+          ? `<strong>${esc(claimed.code)} is a winner.</strong> Marked as claimed. Hand over the prize!`
+          : `<strong>${esc(claimed.code)} already claimed</strong> ${time(claimed.claimedAt!)}. Don't give a second prize.`
+        : claimed.state === 'lost'
+          ? `<strong>${esc(claimed.code)} is not a winning code.</strong>`
+          : claimed.state === 'pending'
+            ? `<strong>${esc(claimed.code)} is entered</strong>, but winners haven't been drawn yet.`
+            : claimed.state === 'unknown'
+              ? "<strong>That code isn't in this giveaway.</strong>"
+              : "<strong>That doesn't look like a code.</strong> Codes look like K7QF-9MXA.";
+    message = `<p class="redeem-msg ${tone}" role="status">${text}</p>`;
+  }
+  return `<section class="card result" id="giveaway">
+  <div class="result-head"><h2>${icons.gift} Giveaway</h2><a class="muted small link-quiet" href="${f.path}/giveaway" target="_blank" rel="noopener">Public page ${icons.external}</a></div>
+  <div class="giveaway-stats">
+    <div><span class="seg-num">${entries}</span><span class="muted small">${entries === 1 ? 'entry' : 'entries'}</span></div>
+    <div><span class="seg-num">${draw ? draw.winners.length : g.winners}</span><span class="muted small">${draw ? 'winners drawn' : 'winners to draw'}</span></div>
+    <div><span class="seg-num">${claims}</span><span class="muted small">claimed</span></div>
+  </div>
+  <p class="muted small">${esc(g.prize)}. ${draw ? `Drawn ${time(draw.drawnAt)} from ${plural(draw.entries, 'entry', 'entries')}.` : `${drawTiming(f)}.`} Entries are anonymous codes, so winners come to you: enter the code from their screen to check it and mark it claimed.</p>
+  ${message}
+  <form method="post" action="/admin${f.path}/claim#giveaway" class="redeem-form">
+    <label class="sr-only" for="claim-code">Winner's code</label>
+    <input type="text" id="claim-code" name="code" placeholder="K7QF-9MXA" autocomplete="off" autocapitalize="characters" spellcheck="false" required>
+    <button type="submit" class="btn btn-primary">Check &amp; claim</button>
+  </form>
+</section>`;
+}
+
 function responsesTable(f: Form, responses: ResponseRecord[]): string {
   if (!responses.length) return '';
+  const questions = answerable(f);
   const rows = [...responses]
     .reverse()
     .map(
       (r) => `<tr>
       <td class="nowrap muted">${time(r.submittedAt)}</td>
-      ${f.questions
+      ${questions
         .map((q) => {
           const labels = answerLabels(q, r.answers?.[q.id]);
           if (!labels.length) return '<td class="muted">—</td>';
@@ -458,15 +670,15 @@ function responsesTable(f: Form, responses: ResponseRecord[]): string {
     )
     .join('');
   return `<section class="card result">
-  <div class="result-head"><h2>Responses</h2><span class="muted small">Newest first</span></div>
+  <div class="result-head"><h2>Responses</h2><span class="muted small">${f.anonymous ? 'Newest day first; random order within a day' : 'Newest first'}</span></div>
   <div class="table-wrap"><table class="data">
-    <thead><tr><th>Submitted</th>${f.questions.map((q) => `<th>${esc(q.resultsTitle || q.label)}</th>`).join('')}</tr></thead>
+    <thead><tr><th>${f.anonymous ? 'Date' : 'Submitted'}</th>${questions.map((q) => `<th title="${esc(q.label)}">${esc(q.shortLabel || q.resultsTitle || q.label)}</th>`).join('')}</tr></thead>
     <tbody>${rows}</tbody>
   </table></div>
 </section>`;
 }
 
-export function results(f: Form, summary: Summary[], responses: ResponseRecord[]): string {
+export function results(f: Form, summary: Summary[], responses: ResponseRecord[], giveaway?: GiveawayInfo, claimed?: CodeStatus): string {
   const latest = responses.at(-1);
   const status = formStatus(f);
   const statusDetail =
@@ -482,7 +694,7 @@ export function results(f: Form, summary: Summary[], responses: ResponseRecord[]
 <div class="page-head">
   <div>
     <div class="title-row"><h1>${esc(f.title)}</h1>${statusPill(f)}</div>
-    <p class="muted">${esc(f.groupName)}${f.eyebrow ? ` · ${esc(f.eyebrow)}` : ''}</p>
+    <p class="muted">${esc(f.groupName)}${f.eyebrow ? ` · ${esc(f.eyebrow)}` : ''}${f.anonymous ? ` · <span class="inline-icon">${icons.shield}Anonymous</span>` : ''}</p>
   </div>
   <div class="actions">
     <a class="btn" href="/admin${f.path}">${icons.refresh}Refresh</a>
@@ -497,7 +709,8 @@ export function results(f: Form, summary: Summary[], responses: ResponseRecord[]
   <div class="card stat"><span class="stat-label">Schedule</span><span class="stat-num stat-text">${statusDetail}</span></div>
 </section>
 <div class="stack">
-  ${summary.map((s) => ('ranked' in s ? choiceResult(s) : textResult(s))).join('\n')}
+  ${giveaway ? giveawayPanel(f, giveaway, claimed) : ''}
+  ${summary.map((s) => (s.kind === 'choice' ? choiceResult(s) : s.kind === 'scale' ? scaleResult(s) : textResult(s))).join('\n')}
   ${responsesTable(f, responses)}
 </div>`,
   });

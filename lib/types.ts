@@ -23,8 +23,19 @@ interface BaseQuestionConfig {
   required?: boolean;
   /** Heading on the results page (defaults to label). */
   resultsTitle?: string;
+  /** A few words for the responses table's column heading (defaults to resultsTitle, then label). */
+  shortLabel?: string;
   /** Show a summary card on the results page. Default true. */
   summary?: boolean;
+  /** Only show (and accept) this question when an earlier choice question has one of these answers. */
+  showIf?: ShowIf;
+}
+
+export interface ShowIf {
+  /** Id of an earlier choice question. */
+  question: string;
+  /** Option id, or ids, that make this question appear. */
+  equals: string | string[];
 }
 
 export interface TextQuestionConfig extends BaseQuestionConfig {
@@ -50,7 +61,30 @@ export interface ChoiceQuestionConfig extends BaseQuestionConfig {
   winnerRule?: 'top' | 'one-per-group';
 }
 
-export type QuestionConfig = TextQuestionConfig | ChoiceQuestionConfig;
+export interface ScaleQuestionConfig extends BaseQuestionConfig {
+  type: 'scale';
+  /** Lowest and highest values. Default 1 to 10. */
+  min?: number;
+  max?: number;
+  minLabel?: string;
+  maxLabel?: string;
+}
+
+/** A heading that splits the form into parts. Collects no answer. */
+export interface SectionConfig extends Omit<BaseQuestionConfig, 'required' | 'summary'> {
+  type: 'section';
+}
+
+export type QuestionConfig = TextQuestionConfig | ChoiceQuestionConfig | ScaleQuestionConfig | SectionConfig;
+
+export interface GiveawayConfig {
+  /** What winners get, e.g. "A free scoop at Mitchell's Ice Cream". */
+  prize: string;
+  /** How many winners to draw when the form closes. */
+  winners: number;
+  /** Ids of text questions that must all be answered to be entered. */
+  questions: string[];
+}
 
 export interface FormGroupConfig {
   /** Appears in the URL: /<id>. Can't be "admin" or "static". */
@@ -61,6 +95,8 @@ export interface FormGroupConfig {
   accentColor?: string;
   /** Up to 3 characters shown in the group's badge. Defaults to the initials of the name. */
   initials?: string;
+  /** IANA time zone, e.g. "America/New_York". Anonymous forms record the date in this zone. Default "UTC". */
+  timeZone?: string;
   forms: FormConfig[];
 }
 
@@ -80,6 +116,15 @@ export interface FormConfig {
   /** ISO date-times, e.g. "2026-11-07T19:00:00-05:00". */
   opensAt?: string;
   closesAt?: string;
+  /**
+   * Don't collect anything that identifies respondents: submission times are
+   * stored as the date only, and responses are listed in random order.
+   */
+  anonymous?: boolean;
+  /** Raffle among respondents. Entries are anonymous codes that can't be linked to answers. */
+  giveaway?: GiveawayConfig;
+  /** Id of a single-choice question; rating results are also averaged per answer to it. */
+  compareBy?: string;
   questions: QuestionConfig[];
 }
 
@@ -119,15 +164,24 @@ export interface ChoiceQuestion extends Omit<ChoiceQuestionConfig, ChoiceDefault
   winnerRule: 'top' | 'one-per-group';
 }
 
-export type Question = TextQuestion | ChoiceQuestion;
+export interface ScaleQuestion extends Omit<ScaleQuestionConfig, keyof NormalizedBase | 'min' | 'max'>, NormalizedBase {
+  min: number;
+  max: number;
+}
+
+export interface SectionQuestion extends Omit<SectionConfig, 'help'>, NormalizedBase {}
+
+export type Question = TextQuestion | ChoiceQuestion | ScaleQuestion | SectionQuestion;
 
 export interface Form extends Omit<FormConfig, 'questions'> {
   listed: boolean;
   allowMultiple: boolean;
+  anonymous: boolean;
   thankYou: { title?: string; message?: string };
   questions: Question[];
   groupId: string;
   groupName: string;
+  timeZone: string;
   /** Public URL path, e.g. "/cru/theology-night". */
   path: string;
   /** Storage key for responses, e.g. "cru/theology-night". */
@@ -141,7 +195,7 @@ export interface FormGroup extends Omit<FormGroupConfig, 'forms'> {
 
 // ---------- Responses ----------
 
-export type Answer = string | string[] | null;
+export type Answer = string | string[] | number | null;
 
 export interface ResponseRecord {
   id: string;
@@ -149,8 +203,16 @@ export interface ResponseRecord {
   answers: Record<string, Answer>;
 }
 
-/** formKey is Form.key, e.g. "cru/theology-night". */
-export interface ResponseStore {
-  add(formKey: string, record: ResponseRecord): Promise<void>;
-  all(formKey: string): Promise<ResponseRecord[]>;
+/** A JSON key-value store (Netlify Blobs in production, files locally). */
+export interface Store {
+  get<T>(key: string): Promise<T | null>;
+  /** With onlyIfNew, returns false and writes nothing when the key already exists. */
+  set(key: string, value: unknown, options?: { onlyIfNew?: boolean }): Promise<boolean>;
+  /** All keys starting with prefix. */
+  list(prefix: string): Promise<string[]>;
+}
+
+export interface Stores {
+  responses: Store;
+  giveaway: Store;
 }

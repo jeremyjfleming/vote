@@ -1,4 +1,4 @@
-import type { Answer, ChoiceQuestion, Form, Option, Question, ResponseRecord, TextQuestion } from './types.ts';
+import type { Answer, ChoiceQuestion, Form, Option, Question, ResponseRecord, ScaleQuestion, TextQuestion } from './types.ts';
 
 export interface RankedOption extends Option {
   count: number;
@@ -14,6 +14,7 @@ export interface Winner extends RankedOption {
 }
 
 export interface ChoiceSummary {
+  kind: 'choice';
   q: ChoiceQuestion;
   answered: number;
   ranked: RankedOption[];
@@ -22,17 +23,32 @@ export interface ChoiceSummary {
 }
 
 export interface TextSummary {
+  kind: 'text';
   q: TextQuestion;
   answered: number;
   answers: string[];
 }
 
-export type Summary = ChoiceSummary | TextSummary;
+export interface ScaleSummary {
+  kind: 'scale';
+  q: ScaleQuestion;
+  answered: number;
+  average: number | null;
+  /** One entry per value from q.min to q.max. */
+  counts: { value: number; count: number }[];
+  maxCount: number;
+  /** Averages per answer to the form's compareBy question. */
+  segments: { label: string; answered: number; average: number | null }[];
+}
+
+export type Summary = ChoiceSummary | TextSummary | ScaleSummary;
 
 function asList(answer: Answer | undefined): string[] {
   if (Array.isArray(answer)) return answer;
-  return answer ? [answer] : [];
+  return typeof answer === 'string' && answer ? [answer] : [];
 }
+
+const mean = (values: number[]) => (values.length ? values.reduce((a, b) => a + b, 0) / values.length : null);
 
 // Picks q.winners options. With winnerRule "one-per-group", the leader of each
 // group is guaranteed a spot and the remaining spots go to the highest counts.
@@ -77,22 +93,56 @@ function tallyChoice(q: ChoiceQuestion, responses: ResponseRecord[]): ChoiceSumm
     })
     .sort((a, b) => b.count - a.count || a.index - b.index);
 
-  return { q, answered, ranked, maxCount: ranked[0]?.count || 0, winners: pickWinners(q, ranked) };
+  return { kind: 'choice', q, answered, ranked, maxCount: ranked[0]?.count || 0, winners: pickWinners(q, ranked) };
 }
 
 function tallyText(q: TextQuestion, responses: ResponseRecord[]): TextSummary {
   const answers = responses.map((r) => r.answers?.[q.id]).filter((v): v is string => typeof v === 'string' && v !== '');
-  return { q, answered: answers.length, answers };
+  return { kind: 'text', q, answered: answers.length, answers };
+}
+
+function tallyScale(q: ScaleQuestion, responses: ResponseRecord[], compareBy?: ChoiceQuestion): ScaleSummary {
+  const scored = responses
+    .map((r) => ({ r, n: r.answers?.[q.id] }))
+    .filter((x): x is { r: ResponseRecord; n: number } => typeof x.n === 'number');
+  const values = scored.map((x) => x.n);
+  const counts = Array.from({ length: q.max - q.min + 1 }, (_, i) => ({ value: q.min + i, count: values.filter((v) => v === q.min + i).length }));
+  const segments = compareBy
+    ? compareBy.options.map((o) => {
+        const segment = scored.filter((x) => x.r.answers?.[compareBy.id] === o.id).map((x) => x.n);
+        return { label: o.label, answered: segment.length, average: mean(segment) };
+      })
+    : [];
+  return {
+    kind: 'scale',
+    q,
+    answered: values.length,
+    average: mean(values),
+    counts,
+    maxCount: Math.max(0, ...counts.map((c) => c.count)),
+    segments,
+  };
 }
 
 export function tally(form: Form, responses: ResponseRecord[]): Summary[] {
+  const compareBy = form.questions.find((q): q is ChoiceQuestion => q.type === 'choice' && q.id === form.compareBy);
   return form.questions
-    .filter((q) => q.summary)
-    .map((q) => (q.type === 'choice' ? tallyChoice(q, responses) : tallyText(q, responses)));
+    .filter((q) => q.summary && q.type !== 'section')
+    .map((q) => {
+      if (q.type === 'choice') return tallyChoice(q, responses);
+      if (q.type === 'scale') return tallyScale(q, responses, compareBy);
+      return tallyText(q as TextQuestion, responses);
+    });
+}
+
+/** Questions that collect answers (everything but section headings). */
+export function answerable(form: Form): Question[] {
+  return form.questions.filter((q) => q.type !== 'section');
 }
 
 // Human-readable answer for tables and CSV.
 export function answerLabels(q: Question, answer: Answer | undefined): string[] {
+  if (typeof answer === 'number') return [String(answer)];
   if (q.type !== 'choice') return typeof answer === 'string' && answer ? [answer] : [];
   return asList(answer).map((v) => q.optionMap.get(v)?.label ?? v);
 }

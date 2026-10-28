@@ -1,12 +1,12 @@
 // Local development server: `npm run dev`. Uses the same handler as Netlify,
-// with responses stored as JSON files in ./.data instead of Netlify Blobs.
+// with data stored as JSON files in ./.data instead of Netlify Blobs.
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { Readable } from 'node:stream';
 import { createHandler } from './lib/app.ts';
-import type { ResponseRecord, ResponseStore } from './lib/types.ts';
+import type { Store } from './lib/types.ts';
 
 const DATA_DIR = path.join(import.meta.dirname, '.data');
 const PUBLIC_DIR = path.join(import.meta.dirname, 'public');
@@ -19,28 +19,44 @@ const TYPES: Record<string, string> = {
   '.ico': 'image/x-icon',
 };
 
-const store: ResponseStore = {
-  async add(formKey, record) {
-    const dir = path.join(DATA_DIR, formKey);
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(path.join(dir, `${Date.now()}-${record.id}.json`), JSON.stringify(record));
-  },
-  async all(formKey) {
-    const dir = path.join(DATA_DIR, formKey);
-    const files = await fs.readdir(dir).catch(() => []);
-    const records = await Promise.all(
-      files.map(async (f): Promise<ResponseRecord> => JSON.parse(await fs.readFile(path.join(dir, f), 'utf8')))
-    );
-    return records.sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
-  },
-};
+// Each key is a JSON file: .data/<store>/<key>.json (keys contain slashes, so they nest).
+function fileStore(name: string): Store {
+  const root = path.join(DATA_DIR, name);
+  const file = (key: string) => path.join(root, `${key}.json`);
+  return {
+    async get(key) {
+      try {
+        return JSON.parse(await fs.readFile(file(key), 'utf8'));
+      } catch {
+        return null;
+      }
+    },
+    async set(key, value, options) {
+      await fs.mkdir(path.dirname(file(key)), { recursive: true });
+      try {
+        await fs.writeFile(file(key), JSON.stringify(value), { flag: options?.onlyIfNew ? 'wx' : 'w' });
+        return true;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
+        throw err;
+      }
+    },
+    async list(prefix) {
+      const files = await fs.readdir(root, { recursive: true }).catch(() => [] as string[]);
+      return files
+        .filter((f) => f.endsWith('.json'))
+        .map((f) => f.slice(0, -'.json'.length).split(path.sep).join('/'))
+        .filter((key) => key.startsWith(prefix));
+    },
+  };
+}
 
 const env = { ...process.env };
 if (!env.ADMIN_PASSWORD) {
   env.ADMIN_PASSWORD = crypto.randomBytes(6).toString('base64url');
   console.warn(`ADMIN_PASSWORD not set; using temporary password: ${env.ADMIN_PASSWORD}`);
 }
-const handler = createHandler({ store, env });
+const handler = createHandler({ stores: { responses: fileStore('responses'), giveaway: fileStore('giveaway') }, env });
 
 async function serveStatic(pathname: string, res: http.ServerResponse): Promise<boolean> {
   const file = path.join(PUBLIC_DIR, path.normalize(pathname));

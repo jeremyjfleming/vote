@@ -3,8 +3,10 @@ import { findForm, groups, isOpen } from './forms.ts';
 import { validate } from './validate.ts';
 import { tally } from './results.ts';
 import { toCsv } from './csv.ts';
+import { addResponse, listResponses, rewriteAll } from './responses.ts';
+import * as giveaway from './giveaway.ts';
 import * as views from './views.ts';
-import type { ResponseStore } from './types.ts';
+import type { Form, Stores } from './types.ts';
 
 const ADMIN_COOKIE = 'fv_admin';
 const SESSION_MS = 12 * 60 * 60 * 1000;
@@ -12,7 +14,7 @@ const LOCKOUT_MS = 15 * 60 * 1000;
 const MAX_FAILURES = 10;
 
 interface HandlerOptions {
-  store: ResponseStore;
+  stores: Stores;
   env: Record<string, string | undefined>;
 }
 
@@ -41,7 +43,7 @@ function redirect(location: string, cookies: string[] = []): Response {
   return new Response(null, { status: 303, headers });
 }
 
-export function createHandler({ store, env }: HandlerOptions): (req: Request) => Promise<Response> {
+export function createHandler({ stores, env }: HandlerOptions): (req: Request) => Promise<Response> {
   const password = env.ADMIN_PASSWORD || '';
   // Derived from the password when unset, so changing the password signs everyone out.
   const secret = env.SESSION_SECRET || sha256(`forms-session:${password}`).toString('hex');
@@ -66,6 +68,16 @@ export function createHandler({ store, env }: HandlerOptions): (req: Request) =>
     const f = failures.get(ip);
     if (!f || Date.now() - f.first > LOCKOUT_MS) failures.set(ip, { count: 1, first: Date.now() });
     else f.count++;
+  }
+
+  async function giveawayInfo(form: Form): Promise<views.GiveawayInfo | undefined> {
+    if (!form.giveaway) return undefined;
+    const [entries, draw, claims] = await Promise.all([
+      giveaway.countEntries(stores.giveaway, form),
+      giveaway.getDraw(stores.giveaway, form),
+      giveaway.countClaims(stores.giveaway, form),
+    ]);
+    return { entries, draw, claims };
   }
 
   async function route(req: Request): Promise<Response> {
@@ -114,16 +126,24 @@ export function createHandler({ store, env }: HandlerOptions): (req: Request) =>
         const list = await Promise.all(
           [...groups.values()].map(async (group) => ({
             group,
-            forms: await Promise.all([...group.forms.values()].map(async (form) => ({ form, count: (await store.all(form.key)).length }))),
+            forms: await Promise.all([...group.forms.values()].map(async (form) => ({ form, count: (await stores.responses.list(`${form.key}/`)).length }))),
           }))
         );
         return html(views.adminHome(list), 200, noStore);
       }
 
+      if ((m = path.match(/^\/admin\/([a-z0-9-]+)\/([a-z0-9-]+)\/claim$/)) && method === 'POST') {
+        const form = findForm(m[1], m[2]);
+        if (!form?.giveaway) return html(views.notFound(), 404);
+        const claimed = await giveaway.claim(stores.giveaway, form, String((await req.formData()).get('code') || ''));
+        const responses = await listResponses(stores.responses, form);
+        return html(views.results(form, tally(form, responses), responses, await giveawayInfo(form), claimed), 200, noStore);
+      }
+
       if ((m = path.match(/^\/admin\/([a-z0-9-]+)\/([a-z0-9-]+)(\/export\.csv)?$/)) && method === 'GET') {
         const form = findForm(m[1], m[2]);
         if (!form) return html(views.notFound(), 404);
-        const responses = await store.all(form.key);
+        const responses = await listResponses(stores.responses, form);
         if (m[3]) {
           return new Response(toCsv(form, responses), {
             headers: {
@@ -133,7 +153,7 @@ export function createHandler({ store, env }: HandlerOptions): (req: Request) =>
             },
           });
         }
-        return html(views.results(form, tally(form, responses), responses), 200, noStore);
+        return html(views.results(form, tally(form, responses), responses, await giveawayInfo(form)), 200, noStore);
       }
 
       return html(views.notFound(), 404);
@@ -145,22 +165,49 @@ export function createHandler({ store, env }: HandlerOptions): (req: Request) =>
       if (group) return html(views.group(group));
     }
 
-    // Public form: /<group>/<form>
-    if ((m = path.match(/^\/([a-z0-9-]+)\/([a-z0-9-]+)(\/thanks)?$/))) {
+    // Public form: /<group>/<form>, plus /thanks and /giveaway
+    if ((m = path.match(/^\/([a-z0-9-]+)\/([a-z0-9-]+)(\/thanks|\/giveaway)?$/))) {
       const form = findForm(m[1], m[2]);
       if (!form) return html(views.notFound(), 404);
       const votedCookie = `fv_done_${form.groupId}_${form.id}`;
+      // The giveaway code lives only in this cookie on the respondent's device ("none" = not entered).
+      const ticketCookie = `fv_ticket_${form.groupId}_${form.id}`;
+      const ticket = parseCookies(req)[ticketCookie];
 
-      if (m[3]) return html(views.thanks(form));
+      if (m[3] === '/thanks') return html(views.thanks(form, { ticket }));
+      if (m[3] === '/giveaway') {
+        if (!form.giveaway) return html(views.notFound(), 404);
+        const typed = method === 'POST' ? String((await req.formData()).get('code') || '') : '';
+        const code = typed || (ticket && ticket !== 'none' ? ticket : '');
+        const status = code ? await giveaway.checkCode(stores.giveaway, form, code) : undefined;
+        const draw = await giveaway.getDraw(stores.giveaway, form);
+        return html(views.giveawayPage(form, { status, draw, fromDevice: !typed && Boolean(code) }), 200, { 'cache-control': 'no-store' });
+      }
       if (!isOpen(form)) return html(views.closed(form));
-      if (!form.allowMultiple && parseCookies(req)[votedCookie]) return html(views.thanks(form, { already: true }));
+      if (!form.allowMultiple && parseCookies(req)[votedCookie]) return html(views.thanks(form, { already: true, ticket }));
 
       if (method === 'GET') return html(views.form(form));
       if (method === 'POST') {
         const { answers, errors } = validate(form, await req.formData());
         if (Object.keys(errors).length) return html(views.form(form, { values: answers, errors }), 422);
-        await store.add(form.key, { id: crypto.randomUUID(), submittedAt: new Date().toISOString(), answers });
-        const cookies = form.allowMultiple ? [] : [cookie(votedCookie, '1', { maxAge: 180 * 86400, secure })];
+        // Anonymous forms keep the date only, so a response can't be matched to when someone submitted.
+        const now = new Date();
+        const submittedAt = form.anonymous
+          ? new Intl.DateTimeFormat('en-CA', { timeZone: form.timeZone }).format(now) // YYYY-MM-DD in the group's zone
+          : now.toISOString();
+        await addResponse(stores.responses, form, { id: crypto.randomUUID(), submittedAt, answers });
+        const keep = { maxAge: 180 * 86400, secure };
+        const cookies = form.allowMultiple ? [] : [cookie(votedCookie, '1', keep)];
+        if (form.giveaway) {
+          const code = giveaway.isEligible(form, answers) ? await giveaway.enter(stores.giveaway, form) : 'none';
+          cookies.push(cookie(ticketCookie, code, keep));
+        }
+        if (form.anonymous) {
+          await Promise.all([
+            rewriteAll(stores.responses, `${form.key}/`),
+            form.giveaway ? rewriteAll(stores.giveaway, `${form.key}/tickets/`) : null,
+          ]);
+        }
         return redirect(`${form.path}/thanks`, cookies);
       }
     }

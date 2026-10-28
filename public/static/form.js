@@ -1,4 +1,4 @@
-// Enforces "choose up to N" and per-list minimums as you click, and shows progress in the submit bar.
+// Form behavior: choice limits and per-list minimums, conditional questions, and giveaway progress.
 (() => {
   const form = document.querySelector('[data-form]');
   if (!form) return;
@@ -50,7 +50,37 @@
     update();
   });
 
+  // Questions with showIf appear only when an earlier choice has one of the listed answers.
+  const conditional = [...form.querySelectorAll('[data-show-if]')];
+  const updateConditional = () => {
+    for (const el of conditional) {
+      const wanted = el.dataset.showValues.split(' ');
+      const picked = [...form.querySelectorAll(`[name="q_${el.dataset.showIf}"]:checked`)].map((i) => i.value);
+      el.hidden = !picked.some((v) => wanted.includes(v));
+    }
+  };
+  if (conditional.length) {
+    form.addEventListener('change', updateConditional);
+    updateConditional();
+  }
+
+  // Giveaway callout: live count of the questions you need to answer to be entered.
+  const callout = form.querySelector('[data-giveaway]');
+  if (callout) {
+    const fields = callout.dataset.giveaway.split(' ').map((id) => form.querySelector(`[name="q_${id}"]`)).filter(Boolean);
+    const progress = callout.querySelector('[data-giveaway-progress]');
+    const update = () => {
+      const done = fields.filter((f) => f.value.trim()).length;
+      const complete = done === fields.length;
+      callout.classList.toggle('is-complete', complete);
+      progress.textContent = complete ? "You're in! Submit to get your giveaway code." : `${done} of ${fields.length} answered`;
+    };
+    fields.forEach((f) => f.addEventListener('input', update));
+    update();
+  }
+
   form.addEventListener('submit', () => {
+    // Re-enable choices locked by limits; hidden questions are dropped by the server anyway.
     form.querySelectorAll('input:disabled').forEach((el) => (el.disabled = false));
     const button = form.querySelector('button[type="submit"]');
     setTimeout(() => (button.disabled = true));

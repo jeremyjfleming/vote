@@ -1,4 +1,4 @@
-import { answerLabels } from './results.ts';
+import { answerable, answerLabels } from './results.ts';
 import type { Form, ResponseRecord } from './types.ts';
 
 function cell(value: string): string {
@@ -8,10 +8,11 @@ function cell(value: string): string {
 }
 
 export function toCsv(form: Form, responses: ResponseRecord[]): string {
-  const header = ['Submitted at', ...form.questions.map((q) => q.label)];
+  const questions = answerable(form);
+  const header = ['Submitted at', ...questions.map((q) => q.label)];
   const rows = responses.map((r) => [
     r.submittedAt,
-    ...form.questions.map((q) => answerLabels(q, r.answers?.[q.id]).join('; ')),
+    ...questions.map((q) => answerLabels(q, r.answers?.[q.id]).join('; ')),
   ]);
   return '﻿' + [header, ...rows].map((row) => row.map(cell).join(',')).join('\r\n') + '\r\n';
 }
