@@ -9,14 +9,8 @@ export default {
   description: "This survey is completely anonymous. We don't collect your name, email, or anything else that identifies you.",
   submitLabel: 'Submit survey',
   anonymous: true,
-  // The giveaway is drawn once the survey closes.
-  closesAt: '2026-11-06T23:59:00-05:00',
+  closesAt: '2026-11-27T23:59:00-05:00',
   compareBy: 'lifegroup',
-  giveaway: {
-    prize: "A free scoop at Mitchell's Ice Cream",
-    winners: 5,
-    questions: ['going-well', 'not-going-well', 'change', 'study-format', 'leaders'],
-  },
   thankYou: {
     title: 'Thanks for your feedback',
     message: 'Your answers are anonymous and will help us make LifeGroups better.',
